@@ -2,7 +2,7 @@
 title: "Lab 4"
 subtitle: "Permutation and bootstrapping in R"
 toc: true
-editor: visual
+editor: source
 format:
   html:
     other-links:
@@ -36,7 +36,7 @@ set.seed(123)
 
 Recall the eel grass restoration example from yesterday's lecture. The data recorded whether attempts to restore eel grass were successful based on the method used (garden staple or popsicle stick) [@fig-eelgrass-data].
 
-```{r}
+```{r, results='hide'}
 #| label: read-eelgrass-data
 
 restoration <- read_csv("week4/data/eelgrass.csv",
@@ -45,7 +45,7 @@ glimpse(restoration)
 
 ```
 
-```{r}
+```{r, results='hide'}
 #| label: fig-eelgrass-data
 #| fig-cap: "Success of eelgrass restoration plots by restoration method."
 
@@ -89,6 +89,8 @@ HA: The Popsicle stick method is associated with higher restoration success comp
 ### Calculate the observed test statistic
 
 **Q3: How would you calculate the test statistic *for the sample*?**
+
+diff_prop
 
 ```{r}
 #| label: q3
@@ -165,10 +167,10 @@ null_distribution <- map_dbl(1:1000, permute)
 null_distribution_df <- data.frame(null_distribution)
 
 null_hist <- ggplot(null_distribution_df, aes(x=null_distribution)) + 
-  geom_histogram()
+  geom_histogram() + 
+  geom_vline(xintercept = diff_prop, linetype = "dashed", color = "red")
 
 null_hist
-
 
 ```
 
@@ -182,13 +184,11 @@ The p-value is *the probability of a test statistic [at least]{.underline} as ex
 #| label: q8
 #| eval: false
 
-null_sd <- sd(null_distribution_df$null_distribution) 
+num_greater <- sum(null_distribution_df$null_distribution > diff_prop) # When estimating p value choose numbers greater than diff of prop
 
-p_val2 <- mean(null_distribution_df$null_distribution) + null_sd*2
+pvalue <- num_greater/sum(length(null_distribution_df$null_distribution))
 
-p_val2
-
-
+pvalue
 ```
 
 ### Interpret the p-value
@@ -200,6 +200,10 @@ When interpreting the p-value, we compare it to a *critical threshold*, usually 
 -   Our evidence is consistent with the hypothesis that restoration method does not influence restoration outcome
 
 -   We cannot reject the hypothesis that restoration method does not influence restoration outcome
+
+-   This is the most accurate response if my p value is greater than the threshold
+
+-   This essentially means that I do not have enough evidence to reject the possibility of there being not difference between both treatments. I fail to reject the null hypothesis.
 
 ## Bootstrap confidence interval
 
@@ -214,7 +218,7 @@ Recall the steps for bootstrapping:
 
 ### Identify the test statistic
 
-**Q11: What is the appropriate test statistic for this question?**
+**Q11: What is the appropriate test statistic for this question?** - The difference of proportions
 
 ### Draw bootstrap samples
 
@@ -226,11 +230,11 @@ This is the key part of bootstrapping! Remember, our goal is to estimate the var
 #| label: q12
 #| eval: false
 
-one_bootstrap <- ??? %>% 
-  ??? %>% 
-  mutate(??? = sample(???,
-                      size = length(???),
-                      replace = ???)) %>% 
+one_bootstrap <- restoration %>% 
+  group_by(treatment) %>% 
+  mutate( new_success = sample(success,
+                      size = length(success),
+                      replace = TRUE)) %>% 
   ungroup()
 
 ```
@@ -246,12 +250,17 @@ one_bootstrap <- ??? %>%
 #| eval: false
 
 bootstrap <- function(i) {
-  ??? %>% 
+  one_bootstrap <- restoration %>% 
+  group_by(treatment) %>% 
+    mutate(new_success = sample(success,
+                                size = length(success),
+                                replace = TRUE)) %>% 
+  ungroup() %>% 
     mutate(trial = i)
 }
 
-bootstrap_samples <- map(???, ???) %>% 
-  ???
+bootstrap_samples <- map(1:1000, bootstrap) %>% 
+  list_rbind()
 
 ```
 
@@ -262,7 +271,10 @@ bootstrap_samples <- map(???, ???) %>%
 ```{r}
 #| label: q14
 
-
+test_stat_per_trial <- bootstrap_samples %>% 
+  group_by(trial, treatment) %>% 
+  summarise(prop_success = mean(new_success), .groups = "drop_last") %>% 
+  summarise(diff_prop = prop_success[2] - prop_success[1]) 
 
 ```
 
@@ -271,6 +283,10 @@ bootstrap_samples <- map(???, ???) %>%
 ```{r}
 #| label: q15
 
+boot_hist <- ggplot(test_stat_per_trial, aes(x=diff_prop)) + 
+  geom_histogram() 
+
+boot_hist
 
 
 ```
@@ -289,7 +305,7 @@ The `quantile()` function finds quantiles. It's vectorized over the parameter `p
 #| label: q16
 #| eval: false
 
-restoration_ci <- ???
+restoration_ci <- quantile(test_stat_per_trial$diff_prop, c(0.025, 0.975))
 restoration_ci
 
 ```
@@ -298,8 +314,11 @@ restoration_ci
 
 ```{r}
 #| label: q17
-
-
+boot_hist <- ggplot(test_stat_per_trial, aes(x=diff_prop)) + 
+  geom_histogram() +
+  geom_vline(xintercept = c(restoration_ci[1], restoration_ci[2]), linetype = "dashed", color = "red")
+  
+boot_hist
 
 ```
 
@@ -309,6 +328,12 @@ The visualization you created for Q7 shows the null distribution of the test sta
 
 **Q18: What did you do to make the null distribution center on zero? Specifically, what code?**
 
+This occured when I broke the association between treatment and outcome. And then sampled without replacement.
+
 **Q19: What did you do to make the bootstrap distribution center on the observed test statistic? Specifically, what code?**
 
+This occurred when I preserved the association between treatment and outcome by re sampling success within each treatment. This caused the difference of proportions outcome to consistently be based on the initial proportions in each treatment, therefore bootstrap samples deviate from that initial value and center around it. I sampled with replacement. And I preserved the relationship between treatment and outcome.
+
 **Q20: What would happen to your bootstrap distribution if you sampled without replacement?**
+
+If I sampled without replacement the proportions of success and failure would remain exactly the same. I would only have the initial pool of success and failure values to assign to each treatment leading to the same proportions for every bootstrap sample.
